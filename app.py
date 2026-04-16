@@ -1,9 +1,14 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import os
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="VIA Project Hub", layout="wide")
+
+# --- FILE PATHS FOR SAVING ---
+# In a real GitHub/Streamlit deployment, these files save to the server's local disk
+MEMBERS_FILE = "via_members.csv"
 
 # --- USER PASSWORDS ---
 USER_CREDENTIALS = {
@@ -15,18 +20,22 @@ USER_CREDENTIALS = {
     "Classmates": "class2026"
 }
 
-# --- INITIALIZE DATABASE (FIXED TO PREVENT KEYERROR) ---
+# --- DATA INITIALIZATION & LOADING ---
+def load_data():
+    if os.path.exists(MEMBERS_FILE):
+        return pd.read_csv(MEMBERS_FILE)
+    return pd.DataFrame(columns=["Name", "Project", "Role", "SubRole"])
+
 if 'data' not in st.session_state:
     st.session_state.data = {
-        "members": pd.DataFrame(columns=["Name", "Project", "Role", "SubRole"]),
+        "members": load_data(),
         "logs": [],
         "contributions": [],
-        "events": [] 
+        "events": []
     }
+
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-if 'user_role' not in st.session_state:
-    st.session_state.user_role = None
 
 # --- LOGIN / LOGOUT LOGIC ---
 if not st.session_state.logged_in:
@@ -47,7 +56,6 @@ if not st.session_state.logged_in:
 st.sidebar.title(f"👤 {st.session_state.user_role}")
 if st.sidebar.button("🔓 Logout"):
     st.session_state.logged_in = False
-    st.session_state.user_role = None
     st.rerun()
 
 st.sidebar.write("---")
@@ -59,7 +67,6 @@ u_role = st.session_state.user_role
 is_chairman = u_role == "Chairman"
 is_rep = u_role == "Representative"
 is_teacher = u_role == "Teacher"
-# Teachers, VIA Committee, Classmates, and Members cannot edit
 can_edit = u_role in ["Chairman", "Representative"]
 
 # --- 1. DASHBOARD ---
@@ -70,26 +77,25 @@ if page == "Dashboard":
     
     with col1:
         st.subheader("📅 Scheduled Events")
-        # Safety check: filtering events
-        all_events = st.session_state.data.get("events", [])
-        p_events = [e for e in all_events if e.get('project') == view_project]
+        p_events = [e for e in st.session_state.data["events"] if e.get('project') == view_project]
         
         if not p_events:
             st.info(f"No {view_project} events scheduled yet.")
         else:
             for i, e in enumerate(p_events):
-                # Check if event has passed
+                # Combine date and time for comparison
                 event_dt = datetime.combine(e['date'], e['start_time'])
                 is_past = event_dt < datetime.now()
                 
-                status_label = "🔴 PASSED" if is_past else "🟢 UPCOMING"
-                with st.expander(f"{e['type']} - {e['date'].strftime('%d %b')} ({status_label})"):
+                status = "🔴 PASSED" if is_past else "🟢 UPCOMING"
+                with st.expander(f"{e['type']} - {e['date'].strftime('%d %b')} ({status})"):
                     st.write(f"**Time:** {e['start_time'].strftime('%H:%M')} to {e['end_time'].strftime('%H:%M')}")
                     st.write(f"**Venue:** {e['venue']}")
+                    st.write(f"**Details:** {e['notes']}")
                     
                     if can_edit and not is_past:
-                        if st.button(f"Cancel Event {i}", key=f"del_{i}"):
-                            st.session_state.data["events"].remove(e)
+                        if st.button(f"Cancel Event {i}", key=f"del_ev_{i}"):
+                            st.session_state.data["events"].pop(i)
                             st.rerun()
 
     with col2:
@@ -98,11 +104,11 @@ if page == "Dashboard":
         proj_members = m_df[m_df['Project'] == view_project]
         
         if proj_members.empty:
-            st.write("No members assigned by Chairman yet.")
+            st.write("No members assigned yet.")
         else:
-            # Display Reps
+            # Display Representatives
             reps = proj_members[proj_members['Role'] == "Representative"]
-            st.markdown("**Representatives:** " + (", ".join(reps['Name'].tolist()) if not reps.empty else "None"))
+            st.markdown("**Representatives:** " + (", ".join(reps['Name'].tolist()) if not reps.empty else "TBD"))
             
             if view_project == "SKIT":
                 for sr in ["Actors", "Prop makers", "Cameraman"]:
@@ -121,90 +127,83 @@ elif page == "Activity Log":
         with st.form("log_form", clear_on_submit=True):
             l_date = st.date_input("Date")
             l_type = st.selectbox("Activity", ["Discussion", "Rehearsal"])
-            l_desc = st.text_area("Progress Report")
+            l_desc = st.text_area("What was done?")
             if st.form_submit_button("Submit Report"):
-                st.session_state.data["logs"].append({
-                    "Project": view_project, "Date": l_date, "Type": l_type, "Desc": l_desc
-                })
-                st.success("Log added!")
+                st.session_state.data["logs"].append({"Project": view_project, "Date": l_date, "Type": l_type, "Desc": l_desc})
+                st.success("Log Saved.")
                 st.rerun()
     
-    st.write("---")
     logs = [l for l in st.session_state.data["logs"] if l.get('Project') == view_project]
-    if not logs:
-        st.info("No logs recorded.")
     for l in reversed(logs):
         with st.expander(f"{l['Date']} - {l['Type']}"):
             st.write(l['Desc'])
 
 # --- 3. CONTRIBUTION TRACKER ---
 elif page == "Contribution Tracker":
-    st.title(f"⏳ {view_project} Contribution")
+    st.title(f"⏳ {view_project} Contribution Tracker")
     
     if can_edit:
         with st.form("time_form", clear_on_submit=True):
-            m_list = st.session_state.data["members"]
-            p_names = m_list[m_list['Project'] == view_project]['Name'].tolist()
+            m_df = st.session_state.data["members"]
+            p_names = m_df[m_df['Project'] == view_project]['Name'].tolist()
             if p_names:
-                who = st.selectbox("Member", p_names)
+                who = st.selectbox("Select Member", p_names)
                 h = st.number_input("Hours", min_value=0, step=1)
                 m = st.number_input("Minutes", min_value=0, max_value=59, step=1)
-                if st.form_submit_button("Record Time"):
-                    st.session_state.data["contributions"].append({
-                        "Project": view_project, "Name": who, "Time": f"{h}h {m}m"
-                    })
+                if st.form_submit_button("Log Time"):
+                    st.session_state.data["contributions"].append({"Project": view_project, "Name": who, "Time": f"{h}h {m}m"})
                     st.rerun()
             else:
-                st.warning("Chairman must add members to this project first.")
-                st.form_submit_button("Submit (Disabled)", disabled=True)
+                st.warning("No members found for this project.")
+                st.form_submit_button("Disabled", disabled=True)
 
-    c_records = [c for c in st.session_state.data["contributions"] if c.get('Project') == view_project]
-    if c_records:
-        st.table(pd.DataFrame(c_records))
-    else:
-        st.info("No contributions recorded yet.")
+    c_list = [c for c in st.session_state.data["contributions"] if c.get('Project') == view_project]
+    if c_list:
+        st.table(pd.DataFrame(c_list))
 
 # --- 4. MANAGEMENT CENTER ---
 elif page == "Management Center":
     if is_chairman:
         st.title("👑 Chairman Management Center")
-        t1, t2 = st.tabs(["Member Management", "Event Scheduler"])
+        tab1, tab2 = st.tabs(["Add Members", "Schedule Event"])
         
-        with t1:
+        with tab1:
             with st.form("mem_form", clear_on_submit=True):
                 c1, c2, c3 = st.columns(3)
-                m_name = c1.text_input("Member Name")
-                m_proj = c2.selectbox("Project", ["SKIT", "BROCHURE"])
-                m_role = c3.selectbox("Role", ["Member", "Representative"])
+                new_n = c1.text_input("Member Name")
+                new_p = c2.selectbox("Project", ["SKIT", "BROCHURE"])
+                new_r = c3.selectbox("Role", ["Member", "Representative"])
+                new_sub = "N/A"
+                if new_p == "SKIT":
+                    new_sub = st.selectbox("SKIT Role", ["Actors", "Prop makers", "Cameraman"])
                 
-                m_sub = "N/A"
-                if m_proj == "SKIT":
-                    m_sub = st.selectbox("SKIT Role", ["Actors", "Prop makers", "Cameraman"])
-                
-                if st.form_submit_button("Add Member"):
-                    if m_name:
-                        new_m = pd.DataFrame([{"Name": m_name, "Project": m_proj, "Role": m_role, "SubRole": m_sub}])
-                        st.session_state.data["members"] = pd.concat([st.session_state.data["members"], new_m], ignore_index=True)
+                if st.form_submit_button("Save Member"):
+                    if new_n:
+                        new_row = pd.DataFrame([{"Name": new_n, "Project": new_p, "Role": new_r, "SubRole": new_sub}])
+                        st.session_state.data["members"] = pd.concat([st.session_state.data["members"], new_row], ignore_index=True)
+                        # SAVE TO CSV
+                        st.session_state.data["members"].to_csv(MEMBERS_FILE, index=False)
+                        st.success(f"Saved {new_n} permanently.")
                         st.rerun()
+
+            st.write("### Current Roster")
             st.dataframe(st.session_state.data["members"], use_container_width=True)
 
-        with t2:
+        with tab2:
             with st.form("event_form", clear_on_submit=True):
-                e_proj = st.selectbox("Project", ["SKIT", "BROCHURE"])
-                e_type = st.radio("Type", ["Discussion", "Rehearsal"])
-                e_date = st.date_input("Date")
+                e_p = st.selectbox("Project", ["SKIT", "BROCHURE"])
+                e_t = st.radio("Type", ["Discussion", "Rehearsal"])
+                e_d = st.date_input("Date")
                 col_t1, col_t2 = st.columns(2)
-                e_start = col_t1.time_input("Start Time")
-                e_end = col_t2.time_input("End Time")
-                e_venue = st.text_input("Venue")
-                
-                if st.form_submit_button("Schedule Event"):
+                e_s = col_t1.time_input("Start")
+                e_e = col_t2.time_input("End")
+                e_v = st.text_input("Venue")
+                e_notes = st.text_input("Notes")
+                if st.form_submit_button("Schedule"):
                     st.session_state.data["events"].append({
-                        "project": e_proj, "type": e_type, "date": e_date, 
-                        "start_time": e_start, "end_time": e_end, "venue": e_venue
+                        "project": e_p, "type": e_t, "date": e_d, 
+                        "start_time": e_s, "end_time": e_e, "venue": e_v, "notes": e_notes
                     })
                     st.success("Event added!")
-                    st.rerun()
     else:
-        st.title("🛡️ Access Denied")
-        st.error("The Chairman Management Center is only visible to the Chairman.")
+        st.error("Access Denied: Teachers and other roles cannot access the Management Center.")
