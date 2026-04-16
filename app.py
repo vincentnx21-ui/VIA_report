@@ -225,7 +225,7 @@ elif page == "Activity Log":
 
                 if is_teach:
                     with st.form(f"t_com_{l['id']}"):
-                        t_msg = st.text_input("Comment for leaders")
+                        t_msg = st.text_input("Comment for class")
                         if st.form_submit_button("Submit"):
                             l.setdefault("comments", []).append(t_msg)
                             save_data(); st.rerun()
