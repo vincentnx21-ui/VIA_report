@@ -186,6 +186,6 @@ elif page == "Chairman Management Center":
                     st.success("Event Added!")
     
     elif is_teacher:
-        st.error("Access Denied: The Chairman Management Center is invisible to Teachers.")
+        st.error("Access Denied")
     else:
         st.error("Access restricted to Chairman.")
