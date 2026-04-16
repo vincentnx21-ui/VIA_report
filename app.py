@@ -1,104 +1,113 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="VIA Class Report Hub", layout="wide")
 
 # Simple Role-Based Access Control
-ADMIN_PASSWORD = "VIA_LEADER_2026" # Change this!
+ADMIN_PASSWORD = "VIA_LEADER_2026" 
 
-# Initialize "Database" (In a real app, use a CSV or Database)
+# --- INITIALIZE DATABASE ---
+# We use .get() and list checks to prevent ValueErrors
 if 'activities' not in st.session_state:
     st.session_state.activities = []
-if 'attendance' not in st.session_state:
-    st.session_state.attendance = {}
+if 'contributions' not in st.session_state:
+    st.session_state.contributions = []
 if 'members' not in st.session_state:
     st.session_state.members = ["Member 1", "Member 2", "Member 3"]
 if 'leaders' not in st.session_state:
     st.session_state.leaders = {"Chairman": "None", "Rep_Skit": "None", "Rep_Brochure": "None"}
 
-# --- SIDEBAR NAVIGATION ---
+# --- SIDEBAR ---
 st.sidebar.title("📌 VIA Navigation")
 project = st.sidebar.selectbox("Select Project", ["SKIT", "BROCHURE"])
 page = st.sidebar.radio("Go to", ["Dashboard & Attendance", "Activity Log", "Contribution Tracker", "Admin Panel"])
 
-# --- ADMIN CHECK ---
+# Admin Login Logic
 is_admin = False
 with st.sidebar.expander("Admin Login"):
     pw = st.text_input("Enter Admin Password", type="password")
     if pw == ADMIN_PASSWORD:
         is_admin = True
-        st.success("Admin Access Granted")
+        st.sidebar.success("Admin Access Granted")
 
-# --- PAGE 1: DASHBOARD & ATTENDANCE ---
+# --- PAGE 1: DASHBOARD ---
 if page == "Dashboard & Attendance":
     st.title(f"🚀 {project} Project Dashboard")
-    
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("Upcoming Events")
-        # In a full version, these would be pulled from a list set by the Chairman
-        st.info("Next Meeting: April 20, 2026 - 2:00 PM (Rehearsal)")
-    
+        st.subheader("Current Leadership")
+        st.write(f"**Chairman:** {st.session_state.leaders['Chairman']}")
+        st.write(f"**Project Rep:** {st.session_state.leaders['Rep_Skit'] if project == 'SKIT' else st.session_state.leaders['Rep_Brochure']}")
+
     with col2:
-        st.subheader("RSVP / Attendance")
-        name = st.selectbox("Select Your Name", st.session_state.members)
-        status = st.radio("Can you attend?", ["Yes", "No", "Maybe"])
-        if st.button("Submit RSVP"):
-            st.success(f"Thank you {name}, your status '{status}' has been recorded.")
+        st.subheader("RSVP")
+        name = st.selectbox("Your Name", st.session_state.members)
+        if st.button("I'm Attending Next Session"):
+            st.toast(f"Recorded attendance for {name}!")
 
 # --- PAGE 2: ACTIVITY LOG ---
 elif page == "Activity Log":
     st.title("📝 Daily Activity Log")
     
     if is_admin:
-        with st.form("log_form"):
+        with st.form("log_form", clear_on_submit=True):
             date = st.date_input("Date")
-            type = st.selectbox("Type", ["Discussion", "Rehearsal", "Production"])
-            desc = st.text_area("What did the class do today?")
-            submit = st.form_submit_button("Post Log")
-            if submit:
-                st.session_state.activities.append({"Date": date, "Type": type, "Desc": desc})
-    
+            act_type = st.selectbox("Type", ["Discussion", "Rehearsal", "Production"])
+            desc = st.text_area("Summary of work done")
+            if st.form_submit_button("Post Log"):
+                st.session_state.activities.append({"Project": project, "Date": str(date), "Type": act_type, "Desc": desc})
+                st.success("Log saved!")
+
     st.write("---")
-    for log in reversed(st.session_state.activities):
-        st.write(f"**{log['Date']} - {log['Type']}**")
-        st.info(log['Desc'])
+    # Filter logs for the selected project
+    project_logs = [log for log in st.session_state.activities if log['Project'] == project]
+    
+    if not project_logs:
+        st.info("No logs recorded for this project yet.")
+    else:
+        for log in reversed(project_logs):
+            with st.expander(f"{log['Date']} - {log['Type']}"):
+                st.write(log['Desc'])
 
 # --- PAGE 3: CONTRIBUTION TRACKER ---
 elif page == "Contribution Tracker":
-    st.title("⏳ Contribution Tracker (Minutes/Hours)")
+    st.title("⏳ Contribution Tracker")
     
     if is_admin:
-        with st.expander("Add Contribution Record"):
+        with st.form("contrib_form", clear_on_submit=True):
             c_name = st.selectbox("Member", st.session_state.members)
-            c_hours = st.number_input("Hours", min_value=0, step=1)
-            c_mins = st.number_input("Minutes", min_value=0, max_value=59, step=1)
-            if st.button("Save Contribution"):
-                st.success(f"Recorded {c_hours}h {c_mins}m for {c_name}")
+            c_hours = st.number_input("Hours", min_value=0)
+            c_mins = st.number_input("Minutes", min_value=0, max_value=59)
+            if st.form_submit_button("Log Time"):
+                st.session_state.contributions.append({"Name": c_name, "Hours": c_hours, "Mins": c_mins, "Project": project})
+                st.success("Time recorded!")
 
-    # Visual Table
-    st.table(pd.DataFrame({
-        "Member": st.session_state.members,
-        "Total Time": ["2h 30m", "1h 45m", "3h 00m"] # Placeholder data
-    }))
+    if not st.session_state.contributions:
+        st.warning("No contribution data available yet.")
+    else:
+        df = pd.DataFrame(st.session_state.contributions)
+        st.table(df[df['Project'] == project])
 
 # --- PAGE 4: ADMIN PANEL ---
 elif page == "Admin Panel":
     if is_admin:
         st.title("🔑 Chairman's Management")
         
-        st.subheader("Set Project Leadership")
+        # Set Leadership
+        st.subheader("Assign Roles")
         st.session_state.leaders["Chairman"] = st.text_input("Chairman Name", st.session_state.leaders["Chairman"])
-        st.session_state.leaders["Rep_Skit"] = st.text_input("Skit Representative", st.session_state.leaders["Rep_Skit"])
+        if project == "SKIT":
+            st.session_state.leaders["Rep_Skit"] = st.text_input("Skit Representative", st.session_state.leaders["Rep_Skit"])
+        else:
+            st.session_state.leaders["Rep_Brochure"] = st.text_input("Brochure Representative", st.session_state.leaders["Rep_Brochure"])
         
-        st.subheader("Manage Members")
-        new_member = st.text_input("Add New Member")
-        if st.button("Add Member"):
-            st.session_state.members.append(new_member)
-            st.rerun()
-            
+        # Member Management
+        st.subheader("Class Roster")
+        new_mem = st.text_input("Add Member Name")
+        if st.button("Add to Class"):
+            st.session_state.members.append(new_mem)
+            st.rerun() # Refresh to update selectboxes
     else:
-        st.error("This page is restricted to the VIA Chairman and Representative.")
+        st.error("Access Denied: Please enter the Admin Password in the sidebar.")
