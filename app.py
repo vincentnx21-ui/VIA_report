@@ -7,10 +7,9 @@ import os
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="VIA Class Portal 2026", layout="wide")
 
-# --- 2. DATA PERSISTENCE ---
+# --- 2. DATA PERSISTENCE & RECOVERY ---
 DATA_FILE = "via_master_data.json"
 
-# Initialize Session State
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "u_name" not in st.session_state:
@@ -18,16 +17,31 @@ if "u_name" not in st.session_state:
 if "u_role" not in st.session_state:
     st.session_state.u_role = ""
 
-# Load Master Data
+# Load Master Data with KeyError Protection
 if "data" not in st.session_state:
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             raw = json.load(f)
+            
+            # --- SAFETY CHECK: Fixes KeyError by adding missing keys ---
+            defaults = {
+                "members": [], "accounts": [], "logs": [], 
+                "contributions": {}, "events": [], "rsvp": [], "attendance": {}
+            }
+            for key, val in defaults.items():
+                if key not in raw:
+                    raw[key] = val
+            
             # Reconstruct datetime objects
             for e in raw.get("events", []):
-                e["date"] = datetime.strptime(e["date"], "%Y-%m-%d").date()
-                e["start_time"] = datetime.strptime(e["start_time"], "%H:%M").time()
-                e["end_time"] = datetime.strptime(e["end_time"], "%H:%M").time()
+                try:
+                    if isinstance(e["date"], str):
+                        e["date"] = datetime.strptime(e["date"], "%Y-%m-%d").date()
+                    if isinstance(e["start_time"], str):
+                        e["start_time"] = datetime.strptime(e["start_time"], "%H:%M").time()
+                    if isinstance(e["end_time"], str):
+                        e["end_time"] = datetime.strptime(e["end_time"], "%H:%M").time()
+                except: continue
             st.session_state.data = raw
     else:
         st.session_state.data = {
@@ -66,7 +80,9 @@ if not st.session_state.authenticated:
                 st.session_state.authenticated = True
                 st.session_state.u_name = name_in
                 st.session_state.u_role = role_in
-                if not any(a['name'] == name_in for a in st.session_state.data["accounts"]):
+                # Use .get() to avoid KeyError during first login
+                acc_list = st.session_state.data.get("accounts", [])
+                if not any(a['name'] == name_in for a in acc_list):
                     st.session_state.data["accounts"].append({"name": name_in, "role": role_in})
                     save_data()
                 st.rerun()
@@ -177,12 +193,9 @@ elif page == "Activity Log":
 # --- CONTRIBUTION TRACKER ---
 elif page == "Contribution Tracker":
     st.title("⏳ Contribution Tracker")
-    # Only Leaders can input
     if is_chair or (is_skit_rep and view_proj=="SKIT") or (is_broch_rep and view_proj=="BROCHURE"):
         st.subheader("Add Contribution")
-        # Get members for the specific project
         proj_members = [m["name"] for m in st.session_state.data["members"] if m["project"] == view_proj]
-        
         if proj_members:
             with st.form("time_input"):
                 target = st.selectbox("Select Member", proj_members)
@@ -194,10 +207,7 @@ elif page == "Contribution Tracker":
                     current = st.session_state.data["contributions"].get(target, 0)
                     st.session_state.data["contributions"][target] = current + total_mins
                     save_data(); st.success(f"Added {h}h {m}m to {target}"); st.rerun()
-        else:
-            st.warning("No members found for this project. Chairman must add members in Management Center.")
 
-    st.subheader("Project Summary")
     summary = []
     for m in [m for m in st.session_state.data["members"] if m["project"] == view_proj]:
         mins = st.session_state.data["contributions"].get(m["name"], 0)
@@ -233,7 +243,7 @@ elif page == "Management Center" and is_chair:
             if st.button(f"Cancel {e['type']} ({e['date']})", key=f"ce_{i}"):
                 st.session_state.data["events"].pop(i); save_data(); st.rerun()
     with t3:
-        for i, a in enumerate(st.session_state.data["accounts"]):
+        for i, a in enumerate(st.session_state.data.get("accounts", [])):
             c1, c2 = st.columns([4, 1])
             c1.write(f"{a['name']} - {a['role']}")
             if c2.button("Delete Account", key=f"da_{i}"):
