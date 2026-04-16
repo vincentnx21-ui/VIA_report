@@ -15,7 +15,7 @@ def save_data():
         data = {
             "members": st.session_state.data.get("members", []),
             "logs": st.session_state.data.get("logs", []),
-            "contributions": st.session_state.data.get("contributions", {}),
+            "contributions": st.session_state.data.get("contributions", {}), # Dictionary
             "rsvp": st.session_state.data.get("rsvp", []),
             "events": []
         }
@@ -35,9 +35,23 @@ def load_data():
         try:
             with open(DATA_FILE, "r") as f:
                 raw = json.load(f)
+                
+                # --- CRITICAL FIX FOR ATTRIBUTE ERROR ---
+                # If contributions is a list (old format), convert it to a dict (new format)
+                if "contributions" in raw and isinstance(raw["contributions"], list):
+                    new_contributions = {}
+                    for entry in raw["contributions"]:
+                        name = entry.get("name")
+                        # Basic parsing of "1h 30m" string if it exists, otherwise default 0
+                        new_contributions[name] = new_contributions.get(name, 0)
+                    raw["contributions"] = new_contributions
+                
+                if "contributions" not in raw: raw["contributions"] = {}
+                # ----------------------------------------
+
                 for key in ["members", "logs", "rsvp", "events"]:
                     if key not in raw: raw[key] = []
-                if "contributions" not in raw: raw["contributions"] = {}
+                
                 for e in raw["events"]:
                     if isinstance(e["date"], str): e["date"] = datetime.strptime(e["date"], "%Y-%m-%d").date()
                     if isinstance(e["start_time"], str): e["start_time"] = datetime.strptime(e["start_time"], "%H:%M").time()
@@ -154,7 +168,6 @@ elif page == "Activity Log":
                 st.write(f"**{l['date']} - {l['type']}**")
                 st.write(l["activity"])
                 
-                # Teacher Comments
                 can_see_comment = is_chair or is_comm or (is_skit_rep and view_proj == "SKIT") or (is_broch_rep and view_proj == "BROCHURE") or is_teach
                 if l["comments"] and can_see_comment:
                     st.write("---")
@@ -178,6 +191,10 @@ elif page == "Contribution Tracker":
             target = st.selectbox("Select Member", names) if names else None
             h, m = st.number_input("Hours", 0), st.number_input("Minutes", 0, 59)
             if st.form_submit_button("Add Time") and target:
+                # Ensure it's a dictionary before accessing
+                if not isinstance(st.session_state.data["contributions"], dict):
+                    st.session_state.data["contributions"] = {}
+                
                 current_total = st.session_state.data["contributions"].get(target, 0)
                 st.session_state.data["contributions"][target] = current_total + (h * 60) + m
                 save_data(); st.rerun()
@@ -185,9 +202,14 @@ elif page == "Contribution Tracker":
     st.write("---")
     st.subheader("Total Accumulated Time")
     tracker_data = []
+    # Ensure it's a dictionary before iterating
+    current_contributions = st.session_state.data.get("contributions", {})
+    if not isinstance(current_contributions, dict):
+        current_contributions = {}
+
     for m in st.session_state.data.get("members", []):
         if m["project"] == view_proj:
-            total_min = st.session_state.data["contributions"].get(m["name"], 0)
+            total_min = current_contributions.get(m["name"], 0)
             tracker_data.append({"Name": m["name"], "Total Time": f"{total_min // 60}h {total_min % 60}m"})
     if tracker_data: st.table(pd.DataFrame(tracker_data))
 
@@ -201,7 +223,7 @@ elif page == "Management Center" and is_chair:
             mn, mp = st.text_input("Name"), st.selectbox("Project", ["SKIT", "BROCHURE"])
             m_rep = st.checkbox("Representative?")
             if mp == "SKIT": ms = st.selectbox("SKIT Role", ["Actors", "Prop makers", "Cameraman", "N/A"])
-            else: ms = "Designer" # Automatic for Brochure
+            else: ms = "Designer"
             if st.form_submit_button("Save Member"):
                 st.session_state.data["members"] = [m for m in st.session_state.data["members"] if m["name"].lower() != mn.lower()]
                 st.session_state.data["members"].append({"name": mn, "project": mp, "sub_role": ms, "is_rep": m_rep})
