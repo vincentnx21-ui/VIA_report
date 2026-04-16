@@ -2,64 +2,89 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# Page Configuration
-st.set_page_config(page_title="VIA Class Report", layout="wide")
+# --- CONFIGURATION ---
+st.set_page_config(page_title="VIA Project Tracker", layout="wide")
 
-# Sidebar Navigation
-st.sidebar.title("📌 VIA Project Dashboard")
-project = st.sidebar.radio("Select Project:", ["Skit", "Brochure"])
-page = st.sidebar.selectbox("Go to:", ["Attendance/Scheduling", "Activity Log", "Contribution Tracker"])
+# Simple Admin Password (Change this!)
+ADMIN_PASSWORD = "via_leader_2026"
 
+# --- SIDEBAR NAVIGATION ---
+st.sidebar.title("📌 VIA Navigation")
+project = st.sidebar.radio("Select Project", ["SKIT", "BROCHURE"])
+page = st.sidebar.selectbox("Go to", ["Home & Attendance", "Activity Log", "Contribution Tracker"])
+
+# --- ADMIN LOGIN ---
+st.sidebar.markdown("---")
+is_admin = False
+admin_code = st.sidebar.text_input("Admin Access", type="password", help="For Chairman/Rep only")
+if admin_code == ADMIN_PASSWORD:
+    is_admin = True
+    st.sidebar.success("Admin Mode Active")
+
+# --- APP LOGIC ---
 st.title(f"Project: {project}")
 
-# --- 1. Attendance & Scheduling ---
-if page == "Attendance/Scheduling":
-    st.header("📅 Schedule & Attendance")
+if page == "Home & Attendance":
+    st.header("📅 Upcoming Rehearsals / Discussions")
     
+    # Placeholder for current schedule
+    st.info("Next Meeting: Friday, Oct 20th | 3:00 PM | School Hall")
+    
+    st.subheader("Attendance Check-in")
     with st.form("attendance_form"):
-        event_date = st.date_input("Event Date")
-        event_type = st.selectbox("Type", ["Discussion", "Rehearsal", "Production"])
-        member_name = st.text_input("Your Name")
-        status = st.radio("Can you attend?", ["Yes", "No", "Maybe"])
-        notes = st.text_area("Reason (if 'No' or 'Maybe')")
-        
-        if st.form_submit_button("Submit Response"):
-            st.success(f"Response recorded for {member_name}!")
-            # In a real app, you'd save this to a CSV or Database
+        name = st.text_input("Your Name")
+        can_attend = st.radio("Can you attend?", ["Yes", "No", "Late"])
+        reason = st.text_area("Reason (if No/Late)")
+        submitted = st.form_submit_button("Submit Attendance")
+        if submitted:
+            st.success(f"Thank you {name}, your response has been recorded.")
 
-# --- 2. Activity Log ---
+    # Admin: Set the next date
+    if is_admin:
+        st.divider()
+        st.subheader("🛠️ Set New Meeting Date (Admin Only)")
+        new_date = st.date_input("Meeting Date")
+        new_time = st.time_input("Meeting Time")
+        if st.button("Update Meeting Schedule"):
+            st.success("Schedule updated for the team!")
+
 elif page == "Activity Log":
-    st.header("📝 Daily Activity Report")
+    st.header("📝 Daily Activity Log")
     
-    with st.form("activity_form"):
-        log_date = st.date_input("Date of Activity", value=datetime.now())
-        activity_summary = st.text_area("What did the class do today?")
-        challenges = st.text_area("Any challenges faced?")
-        
-        if st.form_submit_button("Post Log"):
-            st.info("Activity log saved.")
+    # Display what has been done
+    st.write("Recent activities will appear here...")
+    
+    if is_admin:
+        with st.expander("Add New Activity Log"):
+            log_date = st.date_input("Log Date", datetime.now())
+            activity_type = st.selectbox("Type", ["Discussion", "Rehearsal", "Drafting"])
+            details = st.text_area("What did the class achieve today?")
+            if st.button("Save Log"):
+                st.success("Activity logged successfully!")
 
-# --- 3. Contribution Tracker ---
 elif page == "Contribution Tracker":
-    st.header("⏳ Contribution Minutes/Hours")
+    st.header("⏳ Contribution Tracker")
     
-    with st.form("hours_form"):
+    # Sample Data Table
+    data = {
+        "Name": ["Student A", "Student B"],
+        "Role": ["Scriptwriter", "Actor"],
+        "Hours": [2, 5],
+        "Minutes": [30, 0]
+    }
+    df = pd.DataFrame(data)
+    st.table(df)
+
+    if is_admin:
+        st.divider()
+        st.subheader("➕ Add Member Contribution")
         col1, col2 = st.columns(2)
         with col1:
-            name = st.text_input("Member Name")
-            task = st.text_input("Task Completed")
+            m_name = st.text_input("Member Name")
+            m_hours = st.number_input("Hours", min_value=0)
         with col2:
-            hours = st.number_input("Hours", min_value=0, step=1)
-            minutes = st.number_input("Minutes", min_value=0, max_value=59, step=1)
-            
-        if st.form_submit_button("Log Time"):
-            st.success(f"Logged {hours}h {minutes}m for {name}")
-
-    # Example Table View
-    st.subheader("Summary Table (Example Data)")
-    example_data = pd.DataFrame({
-        "Member": ["Alice", "Bob"],
-        "Task": ["Script Writing", "Prop Design"],
-        "Total Time": ["2h 30m", "1h 45m"]
-    })
-    st.table(example_data)
+            m_role = st.text_input("Role/Task")
+            m_mins = st.number_input("Minutes", min_value=0, max_value=59)
+        
+        if st.button("Update Record"):
+            st.success(f"Updated contribution for {m_name}")
