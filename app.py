@@ -5,7 +5,7 @@ import json
 import os
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="VIA Project Hub 2026", layout="wide")
+st.set_page_config(page_title="VIA Project Management", layout="wide")
 
 # --- DATA PERSISTENCE ---
 DATA_FILE = "via_data.json"
@@ -22,14 +22,14 @@ def save_data():
         }
         for e in st.session_state.data.get("events", []):
             e_copy = e.copy()
-            # DEFENSIVE: Check types before formatting
+            # Strict type checking before formatting
             e_copy["date"] = e["date"].isoformat() if isinstance(e["date"], (date, datetime)) else str(e["date"])
             e_copy["start_time"] = e["start_time"].strftime("%H:%M") if hasattr(e["start_time"], "strftime") else str(e["start_time"])
             e_copy["end_time"] = e["end_time"].strftime("%H:%M") if hasattr(e["end_time"], "strftime") else str(e["end_time"])
             data["events"].append(e_copy)
             
         with open(DATA_FILE, "w") as f:
-            json.dump(data, f)
+            json.dump(data, f, indent=4)
     except Exception as e:
         st.error(f"Save Error: {e}")
 
@@ -72,18 +72,19 @@ USER_PASSWORDS = {
 }
 
 if not st.session_state.logged_in:
-    st.title("🔐 VIA Class Portal")
-    n_in = st.text_input("Full Name").strip().title()
-    r_in = st.selectbox("Select Role", list(USER_PASSWORDS.keys()))
-    p_in = st.text_input("Password", type="password")
+    st.title("🛡️ VIA Project Hub Login")
+    name_in = st.text_input("Enter Your Name").strip().title()
+    role_in = st.selectbox("Select Role", list(USER_PASSWORDS.keys()))
+    pw_in = st.text_input("Password", type="password")
     
     if st.button("Login"):
-        if n_in and p_in == USER_PASSWORDS.get(r_in):
+        if name_in and pw_in == USER_PASSWORDS.get(role_in):
             st.session_state.logged_in = True
-            st.session_state.u_name = n_in
-            st.session_state.u_role = r_in
+            st.session_state.u_name = name_in
+            st.session_state.u_role = role_in
             st.rerun()
-        else: st.error("Incorrect name or password.")
+        else:
+            st.error("Invalid credentials.")
     st.stop()
 
 # --- GLOBALS & SIDEBAR ---
@@ -110,19 +111,22 @@ if page == "Dashboard":
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        st.subheader("📅 Events & RSVP")
+        st.subheader("📅 Events & Attendance")
         evs = [e for e in st.session_state.data.get("events", []) if e.get("project") == view_proj]
         if not evs: st.info("No events scheduled.")
         
         for i, e in enumerate(evs):
             e_id = f"{e['project']}_{e['date']}_{e['start_time']}"
-            is_past = datetime.combine(e["date"], e["start_time"]) < datetime.now()
+            dt_now = datetime.now()
+            event_dt = datetime.combine(e["date"], e["start_time"])
+            is_past = event_dt < dt_now
 
             with st.expander(f"{'🔴' if is_past else '🟢'} {e['type']} - {e['date']} ({e['venue']})"):
                 s_t = e['start_time'].strftime("%H:%M") if hasattr(e['start_time'], 'strftime') else str(e['start_time'])
                 e_t = e['end_time'].strftime("%H:%M") if hasattr(e['end_time'], 'strftime') else str(e['end_time'])
-                st.write(f"**Time:** {s_t} to {e_t}")
+                st.write(f"**Duration:** {s_t} to {e_t}")
                 
+                # Teachers, Members, and Reps can RSVP
                 if not is_past:
                     with st.form(f"rsvp_{i}"):
                         stat = st.radio("Status", ["Attending", "Not Attending", "Late"], key=f"s{i}")
@@ -133,7 +137,8 @@ if page == "Dashboard":
                             save_data(); st.success("Vote recorded!"); st.rerun()
 
                 if is_chair:
-                    st.write("**Responses (Chairman Only):**")
+                    st.write("---")
+                    st.write("**Chairman Data: Member Responses**")
                     rs = [r for r in st.session_state.data.get("rsvp", []) if r.get("event_id") == e_id]
                     if rs: st.table(pd.DataFrame(rs)[["name", "status", "reason"]])
                     else: st.caption("No responses yet.")
@@ -142,8 +147,9 @@ if page == "Dashboard":
         st.subheader("👥 Project Roster")
         m_list = [m for m in st.session_state.data.get("members", []) if m.get("project") == view_proj]
         
+        # Display Representatives
         reps = [m["name"] for m in m_list if m.get("is_rep")]
-        if reps: st.write(f"**Representatives:** {', '.join(reps)}")
+        if reps: st.success(f"**Representatives:** \n{', '.join(reps)}")
         
         st.write("---")
         if view_proj == "SKIT":
@@ -156,15 +162,16 @@ if page == "Dashboard":
 
 # --- ACTIVITY LOG ---
 elif page == "Activity Log":
-    st.title(f"📝 {view_proj} Logs")
+    st.title(f"📝 {view_proj} Activity Logs")
     if is_chair or (is_skit_rep and view_proj == "SKIT") or (is_broch_rep and view_proj == "BROCHURE"):
         with st.form("log_f"):
             ld, lt = st.date_input("Date"), st.selectbox("Type", ["Discussion", "Rehearsal"])
-            la = st.text_area("What was done?")
-            if st.form_submit_button("Add Log"):
+            la = st.text_area("What did the class do today?")
+            if st.form_submit_button("Save Report"):
                 st.session_state.data["logs"].append({"project": view_proj, "date": str(ld), "type": lt, "activity": la})
                 save_data(); st.rerun()
     
+    st.write("---")
     for l in reversed(st.session_state.data.get("logs", [])):
         if l.get("project") == view_proj:
             with st.chat_message("user"):
@@ -179,33 +186,38 @@ elif page == "Contribution Tracker":
         with st.form("time_f"):
             names = [m["name"] for m in st.session_state.data.get("members", []) if m.get("project") == view_proj]
             target = st.selectbox("Select Member", names) if names else None
-            h, m = st.number_input("Hours", 0), st.number_input("Minutes", 0, 59)
-            if st.form_submit_button("Record Time") and target:
+            col_h, col_m = st.columns(2)
+            h = col_h.number_input("Hours", 0)
+            m = col_m.number_input("Minutes", 0, 59)
+            if st.form_submit_button("Record Time Contribution") and target:
                 st.session_state.data["contributions"].append({"project": view_proj, "name": target, "time": f"{h}h {m}m", "date": str(date.today())})
                 save_data(); st.rerun()
     
     df_c = pd.DataFrame([c for c in st.session_state.data.get("contributions", []) if c.get("project") == view_proj])
     if not df_c.empty: st.dataframe(df_c, use_container_width=True)
 
-# --- MANAGEMENT ---
+# --- MANAGEMENT CENTER ---
 elif page == "Management Center" and is_chair:
-    st.title("👑 Chairman Control")
-    t1, t2 = st.tabs(["Roster", "Schedule"])
+    st.title("👑 Chairman Management Center")
+    t1, t2 = st.tabs(["Member & Rep Management", "Schedule Management"])
     
     with t1:
         with st.form("add_m"):
-            mn, mp = st.text_input("Name"), st.selectbox("Project", ["SKIT", "BROCHURE"])
-            m_rep = st.checkbox("Is Representative?")
+            mn = st.text_input("Name")
+            mp = st.selectbox("Assign to Project", ["SKIT", "BROCHURE"])
+            m_rep = st.checkbox("Is Representative for this project?")
             ms = st.selectbox("SKIT Role", ["Actors", "Prop makers", "Cameraman", "N/A"]) if mp == "SKIT" else "N/A"
-            if st.form_submit_button("Add/Update Person") and mn:
+            if st.form_submit_button("Save Entry"):
+                # Overwrite if same name exists (Account Recovery Logic)
                 st.session_state.data["members"] = [m for m in st.session_state.data["members"] if m["name"].lower() != mn.lower()]
                 st.session_state.data["members"].append({"name": mn, "project": mp, "sub_role": ms, "is_rep": m_rep})
                 save_data(); st.rerun()
         
+        st.write("---")
         for i, m in enumerate(st.session_state.data.get("members", [])):
             c1, c2 = st.columns([4, 1])
-            tag = "[REP]" if m.get("is_rep") else ""
-            c1.write(f"**{m['name']}** {tag} - {m['project']}")
+            tag = " 🌟 [REPRESENTATIVE]" if m.get("is_rep") else f" ({m.get('sub_role')})"
+            c1.write(f"**{m['name']}** - {m['project']} {tag}")
             if c2.button("Delete", key=f"del{i}"):
                 st.session_state.data["members"].pop(i); save_data(); st.rerun()
 
@@ -213,12 +225,14 @@ elif page == "Management Center" and is_chair:
         with st.form("ev_f"):
             ep, et, ed = st.selectbox("Project", ["SKIT", "BROCHURE"]), st.selectbox("Type", ["Discussion", "Rehearsal"]), st.date_input("Date")
             es, ee, ev = st.time_input("Start"), st.time_input("End"), st.text_input("Venue")
-            if st.form_submit_button("Schedule") and ev:
+            if st.form_submit_button("Create Event") and ev:
                 st.session_state.data["events"].append({"project": ep, "type": et, "date": ed, "start_time": es, "end_time": ee, "venue": ev})
                 save_data(); st.rerun()
         
+        st.write("---")
         for i, e in enumerate(st.session_state.data.get("events", [])):
             c1, c2 = st.columns([4, 1])
-            c1.write(f"**{e['type']}** on {e['date']} @ {e['venue']}")
+            is_p = datetime.combine(e["date"], e["start_time"]) < datetime.now()
+            c1.write(f"**{e['type']}** on {e['date']} @ {e['venue']} {'(Passed)' if is_p else ''}")
             if c2.button("Cancel", key=f"ecan{i}"):
                 st.session_state.data["events"].pop(i); save_data(); st.rerun()
